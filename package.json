@@ -1,0 +1,11 @@
+{
+  "name": "intek",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "cd worldmonitor && npm run dev",
+    "build": "cd worldmonitor && npm run build",
+    "preview": "cd worldmonitor && npm run preview"
+  }
+}
