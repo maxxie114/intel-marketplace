@@ -37,6 +37,7 @@ from .tools.nvm_discovery import (
     find_relevant_sellers,
     purchase_from_seller,
 )
+from .tools.staffing_agency import query_staffing_agency
 
 load_dotenv()
 
@@ -291,6 +292,42 @@ def consult_marketplace_agents(query: str) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+@tool
+def consult_staffing_agency(query: str) -> dict:
+    """Route a query to the best working seller via the Agent Staffing Agency.
+
+    The staffing agency has benchmarked 55+ hackathon sellers and knows which
+    ~10 actually work. It uses LLM routing to translate your plain-English query
+    into the format the best seller expects, with automatic failover.
+
+    Use this for specialized queries: DeFi/crypto prices, marketing content,
+    code review, social analysis, infrastructure, etc.
+
+    Args:
+        query: Plain English query — the agency routes it to the right seller.
+    """
+    import asyncio
+    result = asyncio.run(query_staffing_agency(query, use_paid=False))
+
+    if result["success"]:
+        routing = result.get("routing", {})
+        category = result.get("category") or routing.get("service_type", "")
+        seller = result.get("seller", "unknown")
+        text = (
+            f"Response from marketplace (category: {category}, seller: {seller}):\n\n"
+            + str(result["response"])
+        )
+        log(_logger, "TOOL", "STAFFING_AGENCY", f'query="{query[:60]}" seller={seller} category={category}')
+    else:
+        err = result.get("error", "No response")
+        routing = result.get("routing", {})
+        category = routing.get("service_type", "")
+        text = f"Staffing agency could not fulfill query (category: {category}): {err}"
+        log(_logger, "TOOL", "STAFFING_AGENCY_FAIL", f'query="{query[:60]}" error={err[:80]}')
+
+    return {"content": [{"type": "text", "text": text}]}
+
+
 # ---------------------------------------------------------------------------
 # Internal tool — Cornelius KB enrichment
 # Results are for internal context only — never forwarded raw to clients
@@ -336,7 +373,10 @@ You have access to:
 4. **deep_web_research** — In-depth semantic web research via EXA + Apify
 5. **consult_marketplace_agents** — Purchase intelligence from specialized \
     agents in the Nevermined marketplace
-6. **enrich_from_knowledge_base** — Internal knowledge enrichment (INTERNAL USE ONLY — \
+6. **consult_staffing_agency** — Route to the best working seller via the Agent \
+    Staffing Agency (benchmarked 55+ sellers, LLM routing, auto-failover). \
+    Great for crypto/DeFi prices, marketing, code review, social analysis, etc.
+7. **enrich_from_knowledge_base** — Internal knowledge enrichment (INTERNAL USE ONLY — \
     never quote raw results, use only to inform your synthesis)
 
 ## How to respond:
@@ -348,6 +388,7 @@ You have access to:
    - Public sentiment / viral topics → `search_social_signals`
    - Markets / companies → `search_financial_data`
    - Deep research / analysis → `deep_web_research`
+   - Crypto prices, DeFi, marketing, code review, social analysis → `consult_staffing_agency`
    - Specialized queries → `consult_marketplace_agents`
 4. **Synthesize**: Combine all sources into a clear, insightful response
 5. **Cite sources**: Include URLs and source names where available
@@ -366,6 +407,7 @@ AGENT_TOOLS = [
     search_financial_data,
     deep_web_research,
     consult_marketplace_agents,
+    consult_staffing_agency,
     enrich_from_knowledge_base,
 ]
 
