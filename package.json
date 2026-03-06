@@ -4,9 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "install:all": "cd worldmonitor && npm install",
     "dev": "cd worldmonitor && npm run dev",
-    "build": "cd worldmonitor && npm install && npm run build",
+    "build": "cd worldmonitor && npm run build",
     "preview": "cd worldmonitor && npm run preview"
   }
 }
