@@ -2,7 +2,7 @@
 World Monitor Agent — Main web server.
 
 Exposes:
-  POST /api/chat        — SSE streaming chat (frontend)
+  POST /api/chat        — SSE streaming chat
   GET  /api/sellers     — Discovered Nevermined marketplace sellers
   GET  /api/balance     — Nevermined credit balance
   GET  /api/logs/stream — SSE log stream
@@ -10,7 +10,6 @@ Exposes:
   POST /data            — x402 payment-protected data endpoint (for external buyers)
   GET  /health          — Health check
   GET  /.well-known/agent.json — A2A agent card
-  Static files          — React frontend (when built)
 """
 
 import asyncio
@@ -26,14 +25,9 @@ load_dotenv()
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
-from starlette.responses import FileResponse
 
 from strands.models.anthropic import AnthropicModel
-
-from payments_py import Payments, PaymentOptions
-from payments_py.x402.fastapi import PaymentMiddleware
 
 from .log import enable_web_logging, get_logger, log
 from .strands_agent import NVM_PLAN_ID, NVM_AGENT_ID, create_agent, payments
@@ -99,15 +93,6 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
-)
-
-# x402 payment protection for /data endpoint (external buyers only)
-app.add_middleware(
-    PaymentMiddleware,
-    payments=payments,
-    routes={
-        "POST /data": {"plan_id": NVM_PLAN_ID, "credits": 1},
-    },
 )
 
 enable_web_logging(log_queue)
@@ -335,22 +320,6 @@ async def health():
 async def ping():
     return {"status": "ok"}
 
-
-# ---------------------------------------------------------------------------
-# Static file serving (production frontend)
-# ---------------------------------------------------------------------------
-
-FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
-
-if FRONTEND_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
-
-    @app.get("/{path:path}")
-    async def spa_fallback(path: str):
-        file_path = (FRONTEND_DIR / path).resolve()
-        if file_path.is_relative_to(FRONTEND_DIR.resolve()) and file_path.is_file():
-            return FileResponse(file_path)
-        return FileResponse(FRONTEND_DIR / "index.html")
 
 
 def main():
