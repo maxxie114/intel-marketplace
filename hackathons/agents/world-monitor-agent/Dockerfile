@@ -11,4 +11,4 @@ COPY src/ ./src/
 
 EXPOSE 3000
 
-CMD ["poetry", "run", "web"]
+CMD ["poetry", "run", "python", "-m", "src.web"]

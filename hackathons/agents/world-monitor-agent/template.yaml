@@ -16,7 +16,7 @@ custom_instructions: |
 
   ## Starting the Server
   When asked to start or deploy, run:
-    cd /app && poetry run web
+    cd /app && poetry run python -m src.web
 
   ## Environment Variables Required
   - NVM_API_KEY, NVM_PLAN_ID, NVM_AGENT_ID (Nevermined seller credentials)
