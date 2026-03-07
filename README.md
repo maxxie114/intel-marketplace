@@ -37,18 +37,15 @@ Frontend (Vercel) → /api/intel-chat → Trinity agent → FastAPI
 
 ---
 
-## Sponsor Track Coverage
+## Tools
 
-### Ability / TrinityOS + Nevermined — *Buy/Sell Services* ($2,000)
+### Nevermined
 
-Full Nevermined x402 payment integration on both sides:
+The agent is registered on the Nevermined sandbox marketplace as both a buyer and a seller.
 
-- **Selling:** Agent registered on Nevermined sandbox with Plan ID and Agent ID. Trinity handles x402 payment verification at the `/api/paid/intel-marketplace-2/chat` endpoint. Buyers purchase credits and call the agent — each query costs credits and settles on-chain.
-- **Buying:** `scripts/auto_trade.py` discovers active sellers via the Nevermined hackathon discovery API, orders plans, generates x402 access tokens, and calls seller endpoints autonomously. Scheduled every 30 minutes via Trinity.
-- **A2A agent card:** `GET /.well-known/agent.json` exposes standard agent capabilities with Nevermined payment extension.
+**Selling:** The FastAPI server uses `payments_py` middleware to verify x402 payment tokens on every request. Buyers order a plan, get an access token, and call the endpoint with a `payment-signature` header.
 
 ```python
-# Example: buy from our agent
 from payments_py import Payments, PaymentOptions
 payments = Payments.get_instance(PaymentOptions(nvm_api_key="YOUR_KEY", environment="sandbox"))
 payments.plans.order_plan("3752853475618467090095078814547168619421798970303024103447800626832273878283")
@@ -57,15 +54,31 @@ token = payments.x402.get_x402_access_token(plan_id, agent_id)
 # with header: payment-signature: {token}
 ```
 
-**Nevermined credentials:**
+**Buying:** `scripts/auto_trade.py` discovers active sellers via the Nevermined hackathon discovery API, orders their plans, generates x402 access tokens, and calls their endpoints autonomously. Runs every 30 minutes via Trinity.
+
+**A2A agent card:** `GET /.well-known/agent.json` exposes standard agent capabilities with Nevermined payment extension.
+
 - Plan ID: `3752853475618467090095078814547168619421798970303024103447800626832273878283`
 - Agent ID: `63046025305469270040963931107827858539408991598001521799587728626823677599318`
 
+See: `hackathons/agents/world-monitor-agent/src/tools/nvm_discovery.py`, `scripts/auto_trade.py`
+
 ---
 
-### Apify — *Real-Time Web Data* ($600+ + AirPods)
+### Trinity (TrinityOS)
 
-Apify Actors power all live data scraping in the backend agent:
+The backend agent runs on Trinity — a managed Claude Code runtime that handles deployment, scheduling, and MCP tool access.
+
+- The FastAPI server (`src/web.py`) runs inside the Trinity container on port 3000
+- Trinity exposes the paid endpoint at `https://us14.abilityai.dev/api/paid/intel-marketplace-2/chat`
+- Auto-trade is scheduled every 30 minutes via Trinity's cron scheduler (`*/30 * * * *`)
+- `CLAUDE.md` provides instructions to the Trinity Claude Code agent for starting the server and running trades
+
+---
+
+### Apify
+
+Apify Actors power all live data scraping. Every paid query triggers actors in parallel with EXA search, then synthesizes results into an AI briefing.
 
 | Tool | Apify Actor | Data |
 |------|-------------|------|
@@ -75,24 +88,38 @@ Apify Actors power all live data scraping in the backend agent:
 | `fetch_finance` | Financial data actor | Stock prices, market data |
 | `fetch_web_content` | Web content extractor | Full article text |
 
-Every paid buyer query triggers Apify actors in parallel with EXA search, then synthesizes the results into an AI briefing. The dashboard also surfaces real-time data from Apify through the chatbot.
-
 See: `hackathons/agents/world-monitor-agent/src/tools/apify_tools.py`
 
 ---
 
-### ZeroClick — *AI-Native Ads + Nevermined* ($2,000)
+### EXA
 
-ZeroClick contextual ads are integrated into the chatbot response flow:
+EXA provides semantic web search and news search used alongside Apify for deeper research queries. Used in `deep_web_research` and `search_financial_data` tools when Apify scraping isn't sufficient.
 
-- After every AI response, the chatbot analyzes the semantic domain (finance, conflict, crypto, travel, etc.) and fetches contextual product offers via the ZeroClick API
-- Offers are displayed as sponsored cards beneath the AI response
-- Click signals and impressions are tracked and broadcast back to ZeroClick
-- Semantic mapping covers 14 domains: stocks, crypto, commodities, cybersecurity, natural disasters, conflict/defense, travel, AI tools, climate, trade, politics, health, real estate, maritime
-
-See: `worldmonitor/src/components/ChatbotPanel.ts` — `appendOffers()`, `SEMANTIC_MAP`
+See: `hackathons/agents/world-monitor-agent/src/tools/exa_tools.py`
 
 ---
+
+### Agent Staffing Agency
+
+The `consult_staffing_agency` tool routes queries to the Agent Staffing Agency — a service that benchmarks 55+ marketplace sellers and forwards queries to the best available one. Used for crypto, DeFi, marketing, and social analysis queries.
+
+- Free `/try` endpoint (1 request/hour), paid `/ask` endpoint
+- Integrated as a Strands tool in `src/strands_agent.py`
+
+See: `hackathons/agents/world-monitor-agent/src/tools/staffing_agency.py`
+
+---
+
+### ZeroClick
+
+ZeroClick contextual ads are injected into the chatbot response flow on the frontend.
+
+- After every AI response, the chatbot maps the semantic domain (finance, conflict, crypto, travel, etc.) to one of 14 categories and fetches contextual product offers via the ZeroClick API
+- Offers are displayed as sponsored cards beneath the AI response
+- Click signals and impressions are tracked and sent back to ZeroClick
+
+See: `worldmonitor/src/components/ChatbotPanel.ts` — `appendOffers()`, `SEMANTIC_MAP`
 
 ---
 
