@@ -233,11 +233,30 @@ export class ChatbotPanel extends Panel {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: query }),
-        signal: AbortSignal.timeout(58_000),
       });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return (data.response || '').trim() || null;
+      if (!res.ok || !res.body) return null;
+
+      // Read SSE stream — keep-alive comments are ignored, data events carry the response
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const payload = JSON.parse(line.slice(6));
+            if (payload.response) return payload.response;
+            if (payload.error) return `Error: ${payload.error}`;
+          } catch { /* skip malformed */ }
+        }
+      }
+      return null;
     } catch {
       return null;
     }
