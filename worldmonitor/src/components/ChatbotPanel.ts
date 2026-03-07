@@ -227,8 +227,47 @@ export class ChatbotPanel extends Panel {
     'toggle_nevermined', 'get_nevermined_payments',
   ]);
 
+  private async callIntelAgent(query: string): Promise<string | null> {
+    try {
+      const res = await fetch('/api/intel-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: query }),
+      });
+      if (!res.ok || !res.body) return null;
+
+      // Read SSE stream — keep-alive comments are ignored, data events carry the response
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const payload = JSON.parse(line.slice(6));
+            if (payload.response) return payload.response;
+            if (payload.error) return `Error: ${payload.error}`;
+          } catch { /* skip malformed */ }
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   private async processQuery(query: string): Promise<string> {
     const lowerQuery = query.toLowerCase();
+
+    // Primary: call the World Monitor intelligence agent directly
+    const intelResponse = await this.callIntelAgent(query);
+    if (intelResponse) return intelResponse;
 
     // Route to appropriate MCP tool based on query intent — exclude internal platform tools
     const isUserFacing = (t: { name: string }) => !ChatbotPanel.INTERNAL_TOOLS.has(t.name);
