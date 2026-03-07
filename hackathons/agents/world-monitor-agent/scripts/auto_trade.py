@@ -101,6 +101,12 @@ async def discover_sellers() -> list[dict]:
 
 def _get_token(payments: Payments, plan_id: str, agent_id: str) -> str | None:
     try:
+        # Order plan first to ensure we have credits (idempotent if already subscribed)
+        try:
+            payments.plans.order_plan(plan_id)
+        except Exception:
+            pass  # Already subscribed or other non-fatal error
+
         scheme = resolve_scheme(payments, plan_id)
         token_options = X402TokenOptions(scheme=scheme)
         result = payments.x402.get_x402_access_token(
@@ -150,45 +156,69 @@ async def purchase_from_seller(
         _log({"event": "ERROR", "seller": name, "message": "Failed to get payment token"})
         return {"status": "error", "seller": name, "error": "no token"}
 
-    # Call seller endpoint
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                f"{endpoint}/data",
-                json={"query": query},
-                headers={
-                    "payment-signature": token,
-                    "Content-Type": "application/json",
-                },
-            )
+    # Determine which URL patterns to try.
+    # Trinity agents expose the paid endpoint directly (no /data suffix).
+    # Other agents typically expose /data on their base URL.
+    is_trinity = "abilityai.dev/api/paid" in endpoint
+    candidate_urls = [endpoint] if is_trinity else [
+        f"{endpoint}/data",
+        endpoint,
+        f"{endpoint}/ask",
+        f"{endpoint}/chat",
+    ]
 
-        if resp.status_code == 200:
-            data = resp.json()
-            response_text = data.get("response", str(data))[:500]
-            _log({
-                "event": "PURCHASE_SUCCESS",
-                "seller": name,
-                "query": query,
-                "response_preview": response_text,
-                "credits_used": data.get("credits_used", "?"),
-            })
-            print(f"  SUCCESS — Response: {response_text[:120]}...")
-            return {"status": "success", "seller": name, "response": response_text}
+    headers = {
+        "payment-signature": token,
+        "Content-Type": "application/json",
+    }
+    # Trinity also accepts Authorization header
+    if is_trinity:
+        headers["Authorization"] = f"Bearer {token}"
 
-        elif resp.status_code == 402:
-            _log({"event": "PAYMENT_REQUIRED", "seller": name, "message": "Insufficient credits"})
-            print(f"  PAYMENT_REQUIRED — need more credits")
-            return {"status": "payment_required", "seller": name}
+    last_status = None
+    last_body = ""
+    for url in candidate_urls:
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                resp = await client.post(
+                    url,
+                    json={"query": query, "message": query},
+                    headers=headers,
+                )
+            last_status = resp.status_code
+            last_body = resp.text[:200]
 
-        else:
-            _log({"event": "ERROR", "seller": name, "message": f"HTTP {resp.status_code}", "body": resp.text[:200]})
-            print(f"  ERROR — HTTP {resp.status_code}: {resp.text[:100]}")
-            return {"status": "error", "seller": name, "error": f"HTTP {resp.status_code}"}
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                except Exception:
+                    data = {"response": resp.text}
+                response_text = (data.get("response") or data.get("message") or str(data))[:500]
+                _log({
+                    "event": "PURCHASE_SUCCESS",
+                    "seller": name,
+                    "url": url,
+                    "query": query,
+                    "response_preview": response_text,
+                })
+                print(f"  SUCCESS ({url}) — {response_text[:120]}...")
+                return {"status": "success", "seller": name, "response": response_text}
 
-    except Exception as e:
-        _log({"event": "ERROR", "seller": name, "message": str(e)})
-        print(f"  EXCEPTION: {e}")
-        return {"status": "error", "seller": name, "error": str(e)}
+            elif resp.status_code == 402:
+                _log({"event": "PAYMENT_REQUIRED", "seller": name, "message": "Insufficient credits", "url": url})
+                print(f"  PAYMENT_REQUIRED at {url}")
+                return {"status": "payment_required", "seller": name}
+
+            elif resp.status_code == 404:
+                continue  # try next URL pattern
+
+        except Exception as e:
+            last_body = str(e)
+            continue
+
+    _log({"event": "ERROR", "seller": name, "message": f"HTTP {last_status}", "body": last_body})
+    print(f"  ERROR — HTTP {last_status}: {last_body[:100]}")
+    return {"status": "error", "seller": name, "error": f"HTTP {last_status}"}
 
 
 # ---------------------------------------------------------------------------
