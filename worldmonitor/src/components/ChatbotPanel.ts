@@ -259,8 +259,8 @@ export class ChatbotPanel extends Panel {
           if (!line.startsWith('data: ')) continue;
           try {
             const payload = JSON.parse(line.slice(6));
-            if (payload.response) return payload.response;
-            if (payload.error) return `Error: ${payload.error}`;
+            if (payload.response && !payload.response.startsWith('Agent returned error')) return payload.response;
+            if (payload.error) return null;
           } catch { /* skip malformed */ }
         }
       }
