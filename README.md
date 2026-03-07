@@ -95,16 +95,6 @@ See: `worldmonitor/src/components/ChatbotPanel.ts` — `appendOffers()`, `SEMANT
 
 ---
 
-### Mindra — *Multi-Agent Orchestration* ($2,000)
-
-The agent implements multi-agent orchestration through:
-
-- **Agent Staffing Agency integration** — routes queries to the best working seller across 55+ agents using LLM-based routing and automatic failover (`consult_staffing_agency` tool)
-- **Nevermined marketplace discovery** — discovers and purchases from specialized agents (`consult_marketplace_agents` tool)
-- **Scheduled autonomous buying** — the agent itself acts as an orchestrator, autonomously purchasing intelligence from seller agents every 30 minutes and synthesizing responses
-
-The Strands agent coordinates up to 5 parallel tool calls (news + social + finance + research + marketplace) before synthesizing a final response — structured multi-source orchestration on every query.
-
 ---
 
 ## Stack
