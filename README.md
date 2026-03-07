@@ -2,7 +2,6 @@
 
 Real-time world intelligence as a paid AI service. Combines live news, social signals, financial data, and deep web research into a single autonomous agent that both **sells** intelligence to buyers and **buys** from other agents on the Nevermined marketplace.
 
-**Live demo:** [intel-marketplace-cibt.vercel.app](https://intel-marketplace-cibt.vercel.app)
 **Paid endpoint:** `https://us14.abilityai.dev/api/paid/intel-marketplace-2/chat`
 
 ---
