@@ -306,6 +306,131 @@ function apifyPlugin(): Plugin {
         }
       });
 
+      // --- Handle /api/intel-chat (proxy to Trinity agent) ---
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/api/intel-chat') || req.method !== 'POST') return next();
+
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+        const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+        const message = (body.message || body.query || '').trim();
+
+        if (!message) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Missing message' }));
+          return;
+        }
+
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+
+        const keepAlive = setInterval(() => {
+          try { res.write(': keep-alive\n\n'); } catch {}
+        }, 5000);
+
+        try {
+          const upstream = await fetch('https://us14.abilityai.dev/api/agents/intel-marketplace-2/chat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: 'Bearer trinity_mcp_sa-ZnRklsQGjN4LZyO6ylxIts9p5ODH82CQwcRREFdo',
+            },
+            body: JSON.stringify({ message }),
+            signal: AbortSignal.timeout(55_000),
+          });
+
+          let response: string;
+          if (upstream.ok) {
+            const data = await upstream.json().catch(() => ({})) as Record<string, any>;
+            response = ((data.response || data.message || '') as string).trim();
+            if (!response) response = JSON.stringify(data);
+          } else {
+            response = `Agent returned error ${upstream.status}. Please try again.`;
+          }
+
+          res.write(`data: ${JSON.stringify({ response })}\n\n`);
+        } catch (e: any) {
+          res.write(`data: ${JSON.stringify({ error: e.message || 'Request failed' })}\n\n`);
+        } finally {
+          clearInterval(keepAlive);
+          res.end();
+        }
+      });
+
+      // --- Handle /api/apify-search (web search via Apify Google Search Scraper) ---
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/api/apify-search') || req.method !== 'POST') return next();
+
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+        const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+        const query = (body.query || body.message || '').trim();
+
+        if (!query) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Missing query' }));
+          return;
+        }
+
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+
+        try {
+          const actorUrl = `https://api.apify.com/v2/acts/apify~google-search-scraper/run-sync-get-dataset-items?token=${APIFY_TOKEN}`;
+          const upstream = await fetch(actorUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              queries: query,
+              maxPagesPerQuery: 1,
+              resultsPerPage: 5,
+              languageCode: 'en',
+              countryCode: 'us',
+            }),
+            signal: AbortSignal.timeout(30_000),
+          });
+
+          if (!upstream.ok) {
+            res.statusCode = 502;
+            res.end(JSON.stringify({ error: `Apify returned ${upstream.status}` }));
+            return;
+          }
+
+          const items = await upstream.json().catch(() => []) as any[];
+          const results: Array<{ title: string; url: string; description: string }> = [];
+          for (const item of items) {
+            if (item.organicResults) {
+              for (const r of item.organicResults.slice(0, 8)) {
+                results.push({
+                  title: r.title || '',
+                  url: r.url || r.link || '',
+                  description: r.description || r.snippet || '',
+                });
+              }
+            }
+          }
+
+          let response = '';
+          if (results.length > 0) {
+            response = `Here's what I found for "${query}":\n\n`;
+            for (let i = 0; i < results.length; i++) {
+              const r = results[i];
+              response += `**${i + 1}. ${r.title}**\n${r.description}\n${r.url}\n\n`;
+            }
+          } else {
+            response = `No search results found for "${query}".`;
+          }
+
+          res.end(JSON.stringify({ response, results }));
+        } catch (e: any) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: e.message || 'Search failed' }));
+        }
+      });
+
       // --- Handle /api/rss-proxy (used by the client for RSS feeds) ---
       server.middlewares.use(async (req, res, next) => {
         if (!req.url?.startsWith('/api/rss-proxy')) return next();

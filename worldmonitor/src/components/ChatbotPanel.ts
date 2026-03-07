@@ -110,10 +110,18 @@ export class ChatbotPanel extends Panel {
           this.mcpTools.push({ name: tool.name, description: tool.description || '', source: 'trinity' });
         }
       }
-      this.updateBadge('trinityBadge', true, this.mcpTools.filter(t => t.source === 'trinity').length);
+      // Mark Intelligence as connected if Trinity responds, regardless of tool count
+      // (all Trinity tools are admin-only but the intel-chat endpoint works directly)
+      this.updateBadge('trinityBadge', true);
     } catch (e) {
-      console.warn('[Chatbot] Trinity MCP discovery failed:', e);
-      this.updateBadge('trinityBadge', false);
+      // Fallback: check if /api/intel-chat is reachable
+      try {
+        const res = await fetch('/api/intel-chat', { method: 'HEAD', signal: AbortSignal.timeout(5000) });
+        this.updateBadge('trinityBadge', res.status !== 404);
+      } catch {
+        console.warn('[Chatbot] Trinity MCP discovery failed:', e);
+        this.updateBadge('trinityBadge', false);
+      }
     }
 
     // Discover Apify MCP tools
@@ -262,72 +270,56 @@ export class ChatbotPanel extends Panel {
     }
   }
 
+  private async callApifySearch(query: string): Promise<string | null> {
+    try {
+      const res = await fetch('/api/apify-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.response || null;
+    } catch {
+      return null;
+    }
+  }
+
   private async processQuery(query: string): Promise<string> {
     const lowerQuery = query.toLowerCase();
 
-    // Primary: call the World Monitor intelligence agent directly
-    const intelResponse = await this.callIntelAgent(query);
-    if (intelResponse) return intelResponse;
-
-    // Route to appropriate MCP tool based on query intent — exclude internal platform tools
-    const isUserFacing = (t: { name: string }) => !ChatbotPanel.INTERNAL_TOOLS.has(t.name);
-    const trinityTools = this.mcpTools.filter(t => t.source === 'trinity' && isUserFacing(t));
-    const apifyTools = this.mcpTools.filter(t => t.source === 'apify' && isUserFacing(t));
-
-    // Try Trinity MCP first for general queries
-    if (trinityTools.length > 0) {
-      // Find the best matching tool
-      const matchedTool = this.findBestTool(lowerQuery, trinityTools);
-      if (matchedTool) {
-        const result = await this.callTool('trinity', matchedTool.name, { query, input: query });
-        if (result && !result.startsWith('Error')) {
-          return this.formatResponse(matchedTool.name, result);
-        }
-      }
-
-      // Try a general-purpose tool if available
-      const generalTool = trinityTools.find(t =>
-        t.name.includes('chat') || t.name.includes('query') || t.name.includes('ask') || t.name.includes('search')
-      );
-      if (generalTool) {
-        const result = await this.callTool('trinity', generalTool.name, { query, message: query, input: query });
-        if (result && !result.startsWith('Error')) {
-          return this.formatResponse(generalTool.name, result);
-        }
-      }
-    }
-
-    // Try Apify for search/scraping queries
-    if (apifyTools.length > 0 && (
-      lowerQuery.includes('search') || lowerQuery.includes('find') ||
-      lowerQuery.includes('news') || lowerQuery.includes('data') ||
-      lowerQuery.includes('scrape') || lowerQuery.includes('fetch')
-    )) {
-      const matchedTool = this.findBestTool(lowerQuery, apifyTools);
-      if (matchedTool) {
-        const result = await this.callTool('apify', matchedTool.name, { query, input: query });
-        if (result && !result.startsWith('Error')) {
-          return this.formatResponse(matchedTool.name, result);
-        }
-      }
-    }
-
-    // Fallback: list available tools
-    if (lowerQuery.includes('help') || lowerQuery.includes('tools') || lowerQuery.includes('what can')) {
+    // Help command
+    if (lowerQuery.includes('help') || lowerQuery.includes('what can')) {
       return this.getHelpText();
     }
 
-    // Try all user-facing tools with a generic call
-    for (const tool of this.mcpTools.filter(isUserFacing)) {
-      try {
-        const result = await this.callTool(tool.source, tool.name, { query, input: query, message: query });
-        if (result && !result.startsWith('Error')) {
-          return this.formatResponse(tool.name, result);
-        }
-      } catch {
-        continue;
+    // Race Trinity intelligence agent and Apify web search in parallel
+    // Trinity provides deep analysis; Apify provides fast web results
+    const trinityPromise = this.callIntelAgent(query);
+    const apifyPromise = this.callApifySearch(query);
+
+    // Wait for both, use Trinity if available, Apify as fallback or supplement
+    const [trinityResult, apifyResult] = await Promise.allSettled([trinityPromise, apifyPromise]);
+
+    const trinity = trinityResult.status === 'fulfilled' ? trinityResult.value : null;
+    const apify = apifyResult.status === 'fulfilled' ? apifyResult.value : null;
+
+    // If Trinity responded with real content, use it (optionally append search results)
+    if (trinity && !trinity.includes("I wasn't able to find")) {
+      if (apify) {
+        return `${trinity}\n\n---\n**Web Search Results:**\n${apify}`;
       }
+      return trinity;
     }
+
+    // If only Apify responded, use it
+    if (apify) {
+      return apify;
+    }
+
+    // If Trinity had a partial response, still return it
+    if (trinity) return trinity;
 
     return `I wasn't able to find relevant information for that query. Here are some things I can help with:\n\n- **Global events** — conflicts, earthquakes, protests\n- **Market data** — stocks, commodities, crypto\n- **Security** — cyber threats, travel advisories\n- **Intelligence** — geopolitical analysis, military activity\n- **Search** — news, research, real-time data\n\nTry rephrasing your question or ask something more specific.`;
   }
