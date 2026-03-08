@@ -216,3 +216,7 @@ also subject to the AGPL-3.0-only license as derivative works.
 ## Team
 
 Built at the Nevermined AI Agent Hackathon 2026.
+
+- Peixi Xie
+- Kush Ise
+- Dhrumil Shah
