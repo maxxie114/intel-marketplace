@@ -195,6 +195,24 @@ python3 scripts/auto_trade.py --max-sellers 5
 
 ---
 
+## Licensing & Attribution
+
+The code in this repository is split across two licenses:
+
+| Path | License | Notes |
+|------|---------|-------|
+| Everything except `worldmonitor/` | MIT | Copyright 2026 maxxie114 |
+| `worldmonitor/` | **AGPL-3.0-only** | See `worldmonitor/LICENSE` |
+
+The `worldmonitor/` directory is a modified fork of
+[World Monitor](https://github.com/koala73/worldmonitor) by Elie Habib,
+licensed under the GNU Affero General Public License v3.0 (AGPL-3.0-only).
+Files added or modified within that directory (including `ChatbotPanel.ts`,
+`ZeroClickOffersPanel.ts`, and the Apify/ZeroClick service integrations) are
+also subject to the AGPL-3.0-only license as derivative works.
+
+---
+
 ## Team
 
 Built at the Nevermined AI Agent Hackathon 2026.

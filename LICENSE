@@ -2,6 +2,13 @@ MIT License
 
 Copyright (c) 2026 maxxie114
 
+NOTE: The `worldmonitor/` subdirectory contains a modified fork of
+World Monitor (https://github.com/eliehab/world-monitor) by Elie Habib,
+licensed under the GNU Affero General Public License v3.0 (AGPL-3.0-only).
+That subdirectory is NOT covered by the MIT license below and retains its
+own LICENSE file. Any modifications made within `worldmonitor/` are also
+subject to the AGPL-3.0-only license.
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
